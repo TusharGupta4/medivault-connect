@@ -1,12 +1,15 @@
-import { useState, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Mail, Search, Users } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Mail, Search, Send, Users } from "lucide-react";
+import { toast } from "sonner";
 
 import PageHeader from "../../components/PageHeader";
 import LoadingState from "../../components/LoadingState";
 import ErrorState from "../../components/ErrorState";
 import EmptyState from "../../components/EmptyState";
 import { patientsService } from "../../services/patients";
+import { accessRequestsService } from "../../services/accessRequests";
+import StatusBadge from "../../components/StatusBadge";
 import { extractApiError } from "../../api/client";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -19,11 +22,38 @@ import {
 export default function DoctorPatientsPage() {
   const [input, setInput] = useState("");
   const [q, setQ] = useState("");
+  const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ["patients", "search", q],
     queryFn: () => patientsService.search(q),
     enabled: q.length > 0,
+  });
+
+  const historyQuery = useQuery({
+    queryKey: ["access-requests", "history"],
+    queryFn: () => accessRequestsService.history(),
+  });
+
+  const activeByPatient = useMemo(() => {
+    const map = new Map<number, "PENDING" | "APPROVED">();
+    for (const item of historyQuery.data ?? []) {
+      if (item.status === "PENDING" || item.status === "APPROVED") {
+        map.set(item.patient_id, item.status);
+      }
+    }
+    return map;
+  }, [historyQuery.data]);
+
+  const sendMutation = useMutation({
+    mutationFn: (patientId: number) => accessRequestsService.send(patientId),
+    onSuccess: () => {
+      toast.success("Access request sent");
+      queryClient.invalidateQueries({ queryKey: ["access-requests", "history"] });
+    },
+    onError: (err) => {
+      toast.error(extractApiError(err, "Couldn't send access request."));
+    },
   });
 
   const submit = (e: FormEvent) => {
@@ -98,22 +128,43 @@ export default function DoctorPatientsPage() {
                   <TableRow>
                     <TableHead>Full name</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead className="text-right">Patient ID</TableHead>
+                    <TableHead>Patient ID</TableHead>
+                    <TableHead className="text-right">Access</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {query.data.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.full_name}</TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                          <Mail className="h-3.5 w-3.5" />
-                          {p.email}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">#{p.id}</TableCell>
-                    </TableRow>
-                  ))}
+                  {query.data.map((p) => {
+                    const active = activeByPatient.get(p.id);
+                    const pending =
+                      sendMutation.isPending && sendMutation.variables === p.id;
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">{p.full_name}</TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                            <Mail className="h-3.5 w-3.5" />
+                            {p.email}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">#{p.id}</TableCell>
+                        <TableCell className="text-right">
+                          {active ? (
+                            <StatusBadge status={active} />
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={pending || historyQuery.isLoading}
+                              onClick={() => sendMutation.mutate(p.id)}
+                            >
+                              <Send className="mr-2 h-3.5 w-3.5" />
+                              {pending ? "Sending…" : "Request access"}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

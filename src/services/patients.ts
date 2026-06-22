@@ -29,15 +29,15 @@ export interface PatientSearchResult {
 
 export const patientsService = {
   async getMyProfile() {
-    const { data } = await api.get<PatientProfile>("patients/profile/");
+    const { data } = await api.get<PatientProfile>("patient/profile/");
     return data;
   },
   async createMyProfile(input: PatientProfileInput) {
-    const { data } = await api.post<PatientProfile>("patients/profile/", input);
+    const { data } = await api.post<PatientProfile>("patient/profile/", input);
     return data;
   },
   async search(q: string) {
-    const { data } = await api.get<PatientSearchResult[]>("patients/search/", {
+    const { data } = await api.get<PatientSearchResult[]>("patient/search/", {
       params: { q },
     });
     return data;
